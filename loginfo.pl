@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.1 2004/04/05 01:37:23 jcs Exp $
+# $Id: loginfo.pl,v 1.2 2004/04/05 03:33:09 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
@@ -36,7 +36,9 @@
 
 use strict;
 
-my ($changelog, $dodiffs, $prepdir, $prepfile, $module, $branch);
+# bucket o' variables
+my ($changelog, $dodiffs, $prepdir, $prepfile, $lastdir, $module, $branch,
+	$curdir);
 my (@versions, @modfiles, @addfiles, @delfiles, @message, @log, @diffs);
 my ($login, $gecos, $fullname, $email);
 
@@ -67,11 +69,8 @@ while (@ARGV) {
 	} else {
 		# read list of files, assuming a format of %{sVv}
 		$ARGV[0] =~ /^(.*?) (.+)/;
-		$module = $1;
+		$module = (split("/", $1))[0];
 		my $filelist = $2;
-
-		# just take the basename
-		$module = (split("/", $module))[0];
 
 		# read list of changed files and their versions
 		while ($filelist =~ /^(.+?,([\d\.]+|NONE),([\d\.]+|NONE))($| (.+))/) {
@@ -83,6 +82,8 @@ while (@ARGV) {
 }
 
 if ($prepdir) {
+	# if we're in prep dir, just record this as the last directory we've seen
+	# and exit
 	unlink($tmpdir . "/" . $tmp_lastdir);
 	open(LASTDIR, ">" . $tmpdir . "/" . $tmp_lastdir) or
 		die "can't prep to " . $tmpdir . "/" . $tmp_lastdir . ": " . $!;
@@ -92,16 +93,16 @@ if ($prepdir) {
 	exit;
 }
 
+# else, we're in loginfo mode, so read the last directory prep mode found
+open(LASTDIR, "<" . $tmpdir . "/" . $tmp_lastdir) or
+	die "can't read " . $tmpdir . "/" . $tmp_lastdir . ": " . $!;
+chop($lastdir = <LASTDIR>);
+close(LASTDIR);
+
 # read log message
 my $startlog = my $startfiles = 0;
 while (my $line = <STDIN>) {
-	if ($line =~ /^Modified Files:/) {
-		$startfiles = "m";
-	} elsif ($line =~ /^Added Files:/) {
-		$startfiles = "a";
-	} elsif ($line =~ /^Removed Files:/) {
-		$startfiles = "r";
-	} elsif ($startfiles) {
+	if ($startfiles) {
 		if ($line =~ /Tag: (.+)/) {
 			$branch = $1;
 		} elsif ($line =~ /^Log Message:/) {
@@ -122,7 +123,75 @@ while (my $line = <STDIN>) {
 		}
 	} elsif ($startlog) {
 		push @log, $line;
+	} else {
+		if ($line =~ /^Update of (.+)/) {
+			$curdir = $1;
+		} elsif ($line =~ /^Modified Files:/) {
+			$startfiles = "m";
+		} elsif ($line =~ /^Added Files:/) {
+			$startfiles = "a";
+		} elsif ($line =~ /^Removed Files:/) {
+			$startfiles = "r";
+		}
 	}
+}
+
+if ($curdir eq $lastdir) {
+	# this is the last time we will run in loginfo mode, read the previous
+	# lists of files
+	if (-f $tmpdir . "/" . $tmp_modfiles) {
+		open(MODFILES, "<" . $tmpdir . "/" . $tmp_modfiles) or
+			die "can't read from " . $tmpdir . "/" . $tmp_modfiles . ": " . $!;
+		while (my $line = <MODFILES>) {
+			push @modfiles, $line;
+		}
+		close(MODFILES);
+	}
+	if (-f $tmpdir . "/" . $tmp_addfiles) {
+		open(ADDFILES, "<" . $tmpdir . "/" . $tmp_addfiles) or
+			die "can't read from " . $tmpdir . "/" . $tmp_addfiles . ": " . $!;
+		while (my $line = <ADDFILES>) {
+			push @addfiles, $line;
+		}
+		close(ADDFILES);
+	}
+	if (-f $tmpdir . "/" . $tmp_addfiles) {
+		open(DELFILES, "<" . $tmpdir . "/" . $tmp_delfiles) or
+			die "can't read from " . $tmpdir . "/" . $tmp_delfiles . ": " . $!;
+		while (my $line = <DELFILES>) {
+			push @delfiles, $line;
+		}
+		close(DELFILES);
+	}
+} else {
+	# we have more directories to process, just record what we saw here and
+	# exit
+	if ($#modfiles > -1) {
+		open(MODFILES, ">>" . $tmpdir . "/" . $tmp_modfiles) or
+			die "can't append to " . $tmpdir . "/" . $tmp_modfiles . ": " . $!;
+		foreach my $modfile (@modfiles) {
+			print MODFILES $modfile;
+		}
+		close(MODFILES);
+	}
+	if ($#addfiles > -1) {
+		open(ADDFILES, ">>" . $tmpdir . "/" . $tmp_addfiles) or
+			die "can't append to " . $tmpdir . "/" . $tmp_addfiles . ": " . $!;
+		foreach my $addfile (@addfiles) {
+			print ADDFILES $addfile;
+		}
+		close(ADDFILES);
+	}
+	if ($#delfiles > -1) {
+		open(DELFILES, ">>" . $tmpdir . "/" . $tmp_delfiles) or
+			die "can't append to " . $tmpdir . "/" . $tmp_delfiles . ": " . $!;
+		foreach my $delfile (@delfiles) {
+			print DELFILES $delfile;
+		}
+		close(DELFILES);
+	}
+
+	exit;
 }
 
 # determine our user
