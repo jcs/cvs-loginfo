@@ -1,13 +1,14 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.5 2004/11/19 00:16:10 jcs Exp $
+# $Id: loginfo.pl,v 1.6 2004/11/19 00:19:29 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
-# a cvs loginfo script to handle changelog writing and diff emailing,
-# similar to the log_accum script included with cvs, but not nearly as
-# hideous
 #
-# Copyright (c) 2004 joshua stein <jcs@rt.fm>
+# a cvs loginfo script to handle changelog writing and emailing, similar to
+# the log_accum script included with cvs, but not nearly as hideous.  also
+# supports emailing diffs.
+#
+# Copyright (c) 2004 joshua stein <jcs@jcs.org>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -25,13 +26,11 @@
 #
 # to process all subdirectories at once, this script will need to be called
 # from commitinfo in "prep" mode (emulating commit_prep):
-#  ALL $CVSROOT/CVSROOT/loginfo.pl -p
+#  ALL  $CVSROOT/CVSROOT/loginfo.pl -p
 #
 # then call the script normally from loginfo:
-#  ALL perl $CVSROOT/CVSROOT/loginfo.pl -c $CVSROOT/CVSROOT/ChangeLog -d ${sVv}
-#
-# if the temporary file created in prep mode is not found, it will run once for
-# every subdirectory
+#  ALL  perl $CVSROOT/CVSROOT/loginfo.pl -c $CVSROOT/CVSROOT/ChangeLog \
+#             -m somelist@example.com -d ${sVv}
 #
 
 use strict;
