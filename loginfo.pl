@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.3 2004/04/05 16:17:07 jcs Exp $
+# $Id: loginfo.pl,v 1.4 2004/11/18 23:33:05 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
@@ -38,8 +38,8 @@ use strict;
 
 # bucket o' variables
 my ($changelog, $dodiffs, $prepdir, $prepfile, $lastdir, $module, $branch,
-	$curdir);
-my (@versions, @modfiles, @addfiles, @delfiles, @message, @log, @diffs);
+	$curdir, $donewdir);
+my (@diffcmds, %modfiles, %addfiles, %delfiles, @message, @log);
 my ($login, $gecos, $fullname, $email);
 
 # temporary files used between runs
@@ -48,14 +48,21 @@ my $tmp_lastdir = ".cvs.lastdir" . getpgrp();
 my $tmp_modfiles = ".cvs.modfiles" . getpgrp();
 my $tmp_addfiles = ".cvs.addfiles" . getpgrp();
 my $tmp_delfiles = ".cvs.delfiles" . getpgrp();
+my $tmp_diffcmd = ".cvs.diffcmd" . getpgrp();
 
 # read command line args
 while (@ARGV) {
+	print "arg: " . $ARGV[0] . "\n";
+
 	# check for prep mode
 	if ($ARGV[0] eq "-p") {
 		# the only args should be a directory and file
 		$prepdir = $ARGV[1];
 		$prepfile = $ARGV[2];
+
+		# remove the cvsroot and slash
+		$prepdir = substr($prepdir, length($ENV{"CVSROOT"}) + 1);
+
 		last;
 	}
 
@@ -65,17 +72,50 @@ while (@ARGV) {
 	} elsif ($ARGV[0] eq "-d") {
 		$dodiffs = 1;
 	} elsif ($ARGV[0] =~ /^(.+) - New directory$/) {
-		# TODO
+		$donewdir = $1;
+
+		if ($donewdir =~ /^(.+?)\/(.+)/) {
+			$module = $1;
+			$donewdir = $2;
+		}
+
+		last;
 	} else {
-		# read list of files, assuming a format of %{sVv}
-		$ARGV[0] =~ /^(.*?) (.+)/;
+		# read list of files, assuming a format of %{sVv} giving us:
+		# something/here/blah file1,1.1,1.2 file2,NONE,1.3
+
+		$ARGV[0] =~ /^(.+?) (.+)/;
+
+		# our "module" is the first component of the path
 		$module = (split("/", $1))[0];
+
+		# and our current directory is the rest of the path
+		$curdir = (split("/", $1, 2))[1];
+		if ($curdir eq "") {
+			$curdir = ".";
+		}
+
+		# our files are the second part of argv[0]
 		my $filelist = $2;
 
+		# init
+		@{$modfiles{$curdir}} = ();
+		@{$addfiles{$curdir}} = ();
+		@{$delfiles{$curdir}} = ();
+
 		# read list of changed files and their versions
-		while ($filelist =~ /^(.+?,([\d\.]+|NONE),([\d\.]+|NONE))($| (.+))/) {
-			push @versions, $1;
-			$filelist = $5;
+		while ($filelist =~ /^((.+?),([\d\.]+|NONE),([\d\.]+|NONE))($| (.+))/) {
+			$filelist = $6;
+
+			if ($3 eq "NONE") {
+				push @{$addfiles{$curdir}}, $2;
+			} elsif ($4 eq "NONE") {
+				push @{$delfiles{$curdir}}, $2;
+			} else {
+				push @{$modfiles{$curdir}}, $2;
+				push @diffcmds, "-r" . $3 . " -r" . $4 . " " . $module . "/"
+					. ($curdir eq "." ? "" : $curdir . "/") . $2;
+			}
 		}
 	}
 	shift(@ARGV);
@@ -85,6 +125,8 @@ if ($prepdir) {
 	# if we're in prep dir, just record this as the last directory we've seen
 	# and exit
 	unlink($tmpdir . "/" . $tmp_lastdir);
+
+	# XXX: this is not safe
 	open(LASTDIR, ">" . $tmpdir . "/" . $tmp_lastdir) or
 		die "can't prep to " . $tmpdir . "/" . $tmp_lastdir . ": " . $!;
 	print LASTDIR $prepdir . "\n";
@@ -93,112 +135,65 @@ if ($prepdir) {
 	exit;
 }
 
-# else, we're in loginfo mode, so read the last directory prep mode found
-open(LASTDIR, "<" . $tmpdir . "/" . $tmp_lastdir) or
-	die "can't read " . $tmpdir . "/" . $tmp_lastdir . ": " . $!;
-chop($lastdir = <LASTDIR>);
-close(LASTDIR);
+if ($donewdir eq "") {
+	# we're in loginfo mode, so read the last directory prep mode found
+	open(LASTDIR, "<" . $tmpdir . "/" . $tmp_lastdir) or
+		die "can't read " . $tmpdir . "/" . $tmp_lastdir . ": " . $!;
+	chop($lastdir = <LASTDIR>);
+	close(LASTDIR);
 
-# read log message
-my $startlog = my $startfiles = 0;
-while (my $line = <STDIN>) {
-	if ($startfiles) {
-		if ($line =~ /Tag: (.+)/) {
-			$branch = $1;
-		} elsif ($line =~ /^Log Message:/) {
-			$startfiles = 0;
-			$startlog++;
+	# read log message
+	my $startlog = my $startfiles = 0;
+	my $tcurdir;
+	while (my $line = <STDIN>) {
+		print ">>> " . $line;
+
+		if ($startlog) {
+			push @log, $line;
+
+			# specifying 'nodiff' in the cvs log will disable sending diffs for
+			# this commit, useful if the commit includes sensitive information
+			# or if the diff will be huge
+			if ($line =~ /nodiff/i) {
+				$dodiffs = 0;
+			}
 		} else {
-			# a filename
-			$line =~ s/^[ \t]+//;
-			$line = "    " . $line;
-
-			if ($startfiles eq "m") {
-				push @modfiles, $line;
-			} elsif ($startfiles eq "a") {
-				push @addfiles, $line;
-			} elsif ($startfiles eq "r") {
-				push @delfiles, $line;
+			if ($line =~ /^[ \t]+Tag: (.+)/) {
+				$branch = $1;
+			} elsif ($line =~ /^Log Message:/) {
+				$startfiles = 0;
+				$startlog++;
 			}
 		}
-	} elsif ($startlog) {
-		push @log, $line;
-
-		# specifying 'nodiff' in the cvs log will disable sending diffs for
-		# this commit, useful if the commit includes sensitive information or
-		# if the diff will be huge
-		if ($line =~ /nodiff/i) {
-			$dodiffs = 0;
-		}
-	} else {
-		if ($line =~ /^Update of (.+)/) {
-			$curdir = $1;
-		} elsif ($line =~ /^Modified Files:/) {
-			$startfiles = "m";
-		} elsif ($line =~ /^Added Files:/) {
-			$startfiles = "a";
-		} elsif ($line =~ /^Removed Files:/) {
-			$startfiles = "r";
-		}
-	}
-}
-
-if ($curdir eq $lastdir) {
-	# this is the last time we will run in loginfo mode, read the previous
-	# lists of files
-	if (-f $tmpdir . "/" . $tmp_modfiles) {
-		open(MODFILES, "<" . $tmpdir . "/" . $tmp_modfiles) or
-			die "can't read from " . $tmpdir . "/" . $tmp_modfiles . ": " . $!;
-		while (my $line = <MODFILES>) {
-			push @modfiles, $line;
-		}
-		close(MODFILES);
-	}
-	if (-f $tmpdir . "/" . $tmp_addfiles) {
-		open(ADDFILES, "<" . $tmpdir . "/" . $tmp_addfiles) or
-			die "can't read from " . $tmpdir . "/" . $tmp_addfiles . ": " . $!;
-		while (my $line = <ADDFILES>) {
-			push @addfiles, $line;
-		}
-		close(ADDFILES);
-	}
-	if (-f $tmpdir . "/" . $tmp_addfiles) {
-		open(DELFILES, "<" . $tmpdir . "/" . $tmp_delfiles) or
-			die "can't read from " . $tmpdir . "/" . $tmp_delfiles . ": " . $!;
-		while (my $line = <DELFILES>) {
-			push @delfiles, $line;
-		}
-		close(DELFILES);
-	}
-} else {
-	# we have more directories to process, just record what we saw here and
-	# exit
-	if ($#modfiles > -1) {
-		open(MODFILES, ">>" . $tmpdir . "/" . $tmp_modfiles) or
-			die "can't append to " . $tmpdir . "/" . $tmp_modfiles . ": " . $!;
-		foreach my $modfile (@modfiles) {
-			print MODFILES $modfile;
-		}
-		close(MODFILES);
-	}
-	if ($#addfiles > -1) {
-		open(ADDFILES, ">>" . $tmpdir . "/" . $tmp_addfiles) or
-			die "can't append to " . $tmpdir . "/" . $tmp_addfiles . ": " . $!;
-		foreach my $addfile (@addfiles) {
-			print ADDFILES $addfile;
-		}
-		close(ADDFILES);
-	}
-	if ($#delfiles > -1) {
-		open(DELFILES, ">>" . $tmpdir . "/" . $tmp_delfiles) or
-			die "can't append to " . $tmpdir . "/" . $tmp_delfiles . ": " . $!;
-		foreach my $delfile (@delfiles) {
-			print DELFILES $delfile;
-		}
-		close(DELFILES);
 	}
 
-	exit;
+	# dump what we have
+	foreach my $dir (keys %modfiles) {
+		my @files = @{$modfiles{$dir}};
+		add_formatted_files($dir, \@files, $tmp_modfiles);
+	}
+
+	foreach my $dir (keys %addfiles) {
+		my @files = @{$addfiles{$dir}};
+		add_formatted_files($dir, \@files, $tmp_addfiles);
+	}
+
+	foreach my $dir (keys %delfiles) {
+		my @files = @{$delfiles{$dir}};
+		add_formatted_files($dir, \@files, $tmp_delfiles);
+	}
+
+	if ($#diffcmds > -1) {
+		open(DIFFCMDS, ">>" . $tmpdir . "/" . $tmp_diffcmd) or
+			die "can't append to " . $tmpdir . "/" . $tmp_diffcmd . ": " . $!;
+		print DIFFCMDS join("\n", @diffcmds) . "\n";
+		close(DIFFCMDS);
+	}
+
+	# we have more directories to look at
+	if (($module . ($curdir eq "." ? "" : "/" . $curdir)) ne $lastdir) {
+		exit;
+	}
 }
 
 # determine our user
@@ -225,32 +220,47 @@ push @message, "Changes by:     " . $email . " "
 
 push @message, "\n";
 
-# add the list of files
-if ($#modfiles > -1) {
-	push @message, "Modified files:\n";
-	foreach my $line (@modfiles) {
-		push @message, $line;
-	}
-}
-if ($#addfiles > -1) {
-	push @message, "Added files:\n";
-	foreach my $line (@addfiles) {
-		push @message, $line;
-	}
-}
-if ($#addfiles > -1) {
-	push @message, "Removed files:\n";
-	foreach my $line (@delfiles) {
-		push @message, $line;
-	}
-}
+if ($donewdir ne "") {
+	push @message, "Created directory " . $donewdir . "\n";
+} else {
+	if (-f $tmpdir . "/" . $tmp_modfiles) {
+		push @message, "Modified files:\n";
 
-push @message, "\n";
+		open(MODFILES, "<" . $tmpdir . "/" . $tmp_modfiles) or
+			die "can't read from " . $tmpdir . "/" . $tmp_modfiles . ": " . $!;
+		while (my $line = <MODFILES>) {
+			push @message, $line;
+		}
+		close(MODFILES);
+	}
+	if (-f $tmpdir . "/" . $tmp_addfiles) {
+		push @message, "Added files:\n";
 
-# add the log
-push @message, "Log message:\n";
-foreach my $line (@log) {
-	push @message, "    " . $line;
+		open(ADDFILES, "<" . $tmpdir . "/" . $tmp_addfiles) or
+			die "can't read from " . $tmpdir . "/" . $tmp_addfiles . ": " . $!;
+		while (my $line = <ADDFILES>) {
+			push @message, $line;
+		}
+		close(ADDFILES);
+	}
+	if (-f $tmpdir . "/" . $tmp_delfiles) {
+		push @message, "Removed files:\n";
+
+		open(DELFILES, "<" . $tmpdir . "/" . $tmp_delfiles) or
+			die "can't read from " . $tmpdir . "/" . $tmp_delfiles . ": " . $!;
+		while (my $line = <DELFILES>) {
+			push @message, $line;
+		}
+		close(DELFILES);
+	}
+
+	push @message, "\n";
+
+	# add the log
+	push @message, "Log message:\n";
+	foreach my $line (@log) {
+		push @message, "    " . $line;
+	}
 }
 
 # if we're saving to a changelog, do it now before we add the diffs
@@ -260,20 +270,61 @@ if ($changelog) {
 	foreach my $line (@message) {
 		print CHANGELOG $line;
 	}
+	print CHANGELOG "\n";
 	close(CHANGELOG);
 }
 
+if (($donewdir eq "") and ($dodiffs) and (-f $tmpdir . "/" . $tmp_diffcmd)) {
+	@diffcmds = ();
+
+	# now generate diffs
+	open(DIFFCMDS, "<" . $tmpdir . "/" . $tmp_diffcmd) or
+		die "can't read " . $tmpdir . "/" . $tmp_diffcmd . ": " . $!;
+	while (chop(my $line = <DIFFCMDS>)) {
+		push @diffcmds, "cvs -nQq rdiff -u " . $line;
+	}
+	close(DIFFCMDS);
+
+	if ($#diffcmds > -1) {
+		push @message, "\n";
+		push @message, "Diffs:\n";
+
+		foreach my $diffcmd (@diffcmds) {
+			open(DIFF, $diffcmd . " 2>&1 |") or die "can't spawn cvs diff: "
+				. $!;
+			while (my $line = <DIFF>) {
+				push @message, $line;
+			}
+			close(DIFF);
+		}
+	}
+}
+
+# send email
 print "-----------------------------\n";
 foreach my $line (@message) {
 	print $line;
 }
 
-$dodiffs = 1;
+exit;
 
-if ($dodiffs) {
-	# now generate diffs
-	foreach my $file (@versions) {
-		$file =~ /^(.+),([0-9\.]+|NONE),([0-9\.]+|NONE)$/;
-		print "cvs rdiff -u -r" . $2 . " -r" . $3 . " " . $1 . "\n";
+sub add_formatted_files {
+	my $dir = $_[0];
+	my $files = $_[1];
+	my $tmpfile = $_[2];
+
+	if (@$files) {
+		open(FILES, ">>" . $tmpdir . "/" . $tmpfile) or
+			die "can't append to " . $tmpdir . "/" . $tmpfile . ": " . $!;
+
+		print FILES "   " . $dir . (" " x (15 - length($dir))) . " :";
+
+		foreach my $file (@$files) {
+			print FILES " " . $file;
+		}
+
+		print FILES "\n";
+
+		close(FILES);
 	}
 }
