@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.9 2004/11/19 17:39:53 jcs Exp $
+# $Id: loginfo.pl,v 1.10 2004/11/19 18:18:41 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
@@ -314,8 +314,8 @@ if (($donewdir eq "") and ($dodiffs) and (-f $tmpdir . "/" . $tmp_diffcmd)) {
 		push @message, "Diffs:\n";
 
 		foreach my $diffcmd (@diffcmds) {
-			open(DIFF, $diffcmd . " 2>&1 |") or die "can't spawn cvs diff: "
-				. $!;
+			my @args = split(" ", $diffcmd, 7);
+			open(DIFF, "-|") || exec @args;
 			while (my $line = <DIFF>) {
 				push @message, $line;
 			}
