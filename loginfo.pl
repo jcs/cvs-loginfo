@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.2 2004/04/05 03:33:09 jcs Exp $
+# $Id: loginfo.pl,v 1.3 2004/04/05 16:17:07 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
@@ -123,6 +123,13 @@ while (my $line = <STDIN>) {
 		}
 	} elsif ($startlog) {
 		push @log, $line;
+
+		# specifying 'nodiff' in the cvs log will disable sending diffs for
+		# this commit, useful if the commit includes sensitive information or
+		# if the diff will be huge
+		if ($line =~ /nodiff/i) {
+			$dodiffs = 0;
+		}
 	} else {
 		if ($line =~ /^Update of (.+)/) {
 			$curdir = $1;
