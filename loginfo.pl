@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.4 2004/11/18 23:33:05 jcs Exp $
+# $Id: loginfo.pl,v 1.5 2004/11/19 00:16:10 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
@@ -37,10 +37,9 @@
 use strict;
 
 # bucket o' variables
-my ($changelog, $dodiffs, $prepdir, $prepfile, $lastdir, $module, $branch,
-	$curdir, $donewdir);
+my ($changelog, $dodiffs, $donewdir, $doimport, $doemail);
+my ($curdir, $prepdir, $lastdir, $module, $branch);
 my (@diffcmds, %modfiles, %addfiles, %delfiles, @message, @log);
-my ($login, $gecos, $fullname, $email);
 
 # temporary files used between runs
 my $tmpdir = "/tmp";
@@ -52,13 +51,10 @@ my $tmp_diffcmd = ".cvs.diffcmd" . getpgrp();
 
 # read command line args
 while (@ARGV) {
-	print "arg: " . $ARGV[0] . "\n";
-
 	# check for prep mode
 	if ($ARGV[0] eq "-p") {
-		# the only args should be a directory and file
+		# the only args should be a directory (and a file we don't use)
 		$prepdir = $ARGV[1];
-		$prepfile = $ARGV[2];
 
 		# remove the cvsroot and slash
 		$prepdir = substr($prepdir, length($ENV{"CVSROOT"}) + 1);
@@ -71,12 +67,24 @@ while (@ARGV) {
 		shift(@ARGV);
 	} elsif ($ARGV[0] eq "-d") {
 		$dodiffs = 1;
+	} elsif ($ARGV[0] eq "-m") {
+		$doemail = $ARGV[1];
+		shift(@ARGV);
 	} elsif ($ARGV[0] =~ /^(.+) - New directory$/) {
 		$donewdir = $1;
 
 		if ($donewdir =~ /^(.+?)\/(.+)/) {
 			$module = $1;
 			$donewdir = $2;
+		}
+
+		last;
+	} elsif ($ARGV[0] =~ /^(.+) - Imported sources$/) {
+		$doimport = $1;
+
+		if ($doimport =~ /^(.+?)\/(.+)/) {
+			$module = $1;
+			$doimport = $2;
 		}
 
 		last;
@@ -136,18 +144,17 @@ if ($prepdir) {
 }
 
 if ($donewdir eq "") {
-	# we're in loginfo mode, so read the last directory prep mode found
-	open(LASTDIR, "<" . $tmpdir . "/" . $tmp_lastdir) or
-		die "can't read " . $tmpdir . "/" . $tmp_lastdir . ": " . $!;
-	chop($lastdir = <LASTDIR>);
-	close(LASTDIR);
+	if ($doimport eq "") {
+		# we're in loginfo mode, so read the last directory prep mode found
+		open(LASTDIR, "<" . $tmpdir . "/" . $tmp_lastdir) or
+			die "can't read " . $tmpdir . "/" . $tmp_lastdir . ": " . $!;
+		chop($lastdir = <LASTDIR>);
+		close(LASTDIR);
+	}
 
 	# read log message
-	my $startlog = my $startfiles = 0;
-	my $tcurdir;
+	my $startlog = 0;
 	while (my $line = <STDIN>) {
-		print ">>> " . $line;
-
 		if ($startlog) {
 			push @log, $line;
 
@@ -161,7 +168,6 @@ if ($donewdir eq "") {
 			if ($line =~ /^[ \t]+Tag: (.+)/) {
 				$branch = $1;
 			} elsif ($line =~ /^Log Message:/) {
-				$startfiles = 0;
 				$startlog++;
 			}
 		}
@@ -190,11 +196,16 @@ if ($donewdir eq "") {
 		close(DIFFCMDS);
 	}
 
-	# we have more directories to look at
-	if (($module . ($curdir eq "." ? "" : "/" . $curdir)) ne $lastdir) {
-		exit;
+	if ($doimport eq "") {
+		# we have more directories to look at
+		if (($module . ($curdir eq "." ? "" : "/" . $curdir)) ne $lastdir) {
+			exit;
+		}
 	}
 }
+
+# start building header
+my ($login, $gecos, $fullname, $email);
 
 # determine our user
 if ($login = $ENV{"USER"}) {
@@ -207,7 +218,6 @@ $fullname =~ s/,.*//;
 chop(my $hostname = `hostname`);
 $email = $login . "\@" . $hostname;
 
-# create the header
 push @message, "CVSROOT:        " . $ENV{"CVSROOT"} . "\n";
 push @message, "Module name:    " . $module . "\n";
 if ($branch) {
@@ -223,6 +233,7 @@ push @message, "\n";
 if ($donewdir ne "") {
 	push @message, "Created directory " . $donewdir . "\n";
 } else {
+	# add file groups
 	if (-f $tmpdir . "/" . $tmp_modfiles) {
 		push @message, "Modified files:\n";
 
@@ -254,7 +265,9 @@ if ($donewdir ne "") {
 		close(DELFILES);
 	}
 
-	push @message, "\n";
+	if ($doimport eq "") {
+		push @message, "\n";
+	}
 
 	# add the log
 	push @message, "Log message:\n";
@@ -275,9 +288,8 @@ if ($changelog) {
 }
 
 if (($donewdir eq "") and ($dodiffs) and (-f $tmpdir . "/" . $tmp_diffcmd)) {
+	# generate diffs
 	@diffcmds = ();
-
-	# now generate diffs
 	open(DIFFCMDS, "<" . $tmpdir . "/" . $tmp_diffcmd) or
 		die "can't read " . $tmpdir . "/" . $tmp_diffcmd . ": " . $!;
 	while (chop(my $line = <DIFFCMDS>)) {
@@ -300,11 +312,27 @@ if (($donewdir eq "") and ($dodiffs) and (-f $tmpdir . "/" . $tmp_diffcmd)) {
 	}
 }
 
-# send email
-print "-----------------------------\n";
-foreach my $line (@message) {
-	print $line;
+if ($doemail) {
+	# send email
+	open(SENDMAIL, "| /usr/sbin/sendmail -t") or
+		die "can't run sendmail: " . $!;
+	print SENDMAIL "From: " . $fullname . " <" . $email . ">\n";
+	print SENDMAIL "Reply-To: " . $email . "\n";
+	print SENDMAIL "To: " . $doemail . "\n";
+	print SENDMAIL "Subject: CVS: " . $hostname . ": " . $module . "\n";
+	print SENDMAIL "\n";
+	foreach my $line (@message) {
+		print SENDMAIL $line;
+	}
+	close(SENDMAIL);
 }
+
+# clean up
+unlink($tmpdir . "/" . $tmp_lastdir);
+unlink($tmpdir . "/" . $tmp_modfiles);
+unlink($tmpdir . "/" . $tmp_addfiles);
+unlink($tmpdir . "/" . $tmp_delfiles);
+unlink($tmpdir . "/" . $tmp_diffcmd);
 
 exit;
 
@@ -317,8 +345,9 @@ sub add_formatted_files {
 		open(FILES, ">>" . $tmpdir . "/" . $tmpfile) or
 			die "can't append to " . $tmpdir . "/" . $tmpfile . ": " . $!;
 
-		print FILES "   " . $dir . (" " x (15 - length($dir))) . " :";
+		print FILES "    " . $dir . (" " x (15 - length($dir))) . " :";
 
+		# TODO: wrap files and indent
 		foreach my $file (@$files) {
 			print FILES " " . $file;
 		}
