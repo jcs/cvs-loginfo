@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.6 2004/11/19 00:19:29 jcs Exp $
+# $Id: loginfo.pl,v 1.7 2004/11/19 00:22:12 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
@@ -61,7 +61,8 @@ while (@ARGV) {
 		last;
 	}
 
-	if ($ARGV[0] eq "-c") {
+	# configuration options
+	elsif ($ARGV[0] eq "-c") {
 		$changelog = $ARGV[1];
 		shift(@ARGV);
 	} elsif ($ARGV[0] eq "-d") {
@@ -69,7 +70,10 @@ while (@ARGV) {
 	} elsif ($ARGV[0] eq "-m") {
 		$doemail = $ARGV[1];
 		shift(@ARGV);
-	} elsif ($ARGV[0] =~ /^(.+) - New directory$/) {
+	}
+
+	# args passed by cvs
+	elsif ($ARGV[0] =~ /^(.+) - New directory$/) {
 		$donewdir = $1;
 
 		if ($donewdir =~ /^(.+?)\/(.+)/) {
