@@ -1,9 +1,8 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.10 2004/11/19 18:18:41 jcs Exp $
+# $Id: loginfo.pl,v 1.11 2004/11/21 05:13:05 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
-#
 # a cvs loginfo script to handle changelog writing and emailing, similar to
 # the log_accum script included with cvs, but not nearly as hideous.  also
 # supports emailing diffs.
