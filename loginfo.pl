@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.7 2004/11/19 00:22:12 jcs Exp $
+# $Id: loginfo.pl,v 1.8 2004/11/19 17:30:04 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
@@ -173,6 +173,15 @@ if ($donewdir eq "") {
 			} elsif ($line =~ /^Log Message:/) {
 				$startlog++;
 			}
+		}
+	}
+
+	# remove trailing empty lines from the log
+	for (my $x = $#log; $x >= 0; $x--) {
+		if ($log[$x] eq "") {
+			pop(@log);
+		} else {
+			last;
 		}
 	}
 
