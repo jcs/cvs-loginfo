@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.12 2004/12/05 22:03:04 jcs Exp $
+# $Id: loginfo.pl,v 1.13 2005/02/11 22:54:17 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
@@ -40,7 +40,7 @@
 #
 # then call the script normally from loginfo:
 #  ALL  perl $CVSROOT/CVSROOT/loginfo.pl -c $CVSROOT/CVSROOT/ChangeLog \
-#             -m somelist@example.com -d ${sVv}
+#             -m somelist@example.com -d %{sVv}
 #
 
 use strict;
