@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.13 2005/02/11 22:54:17 jcs Exp $
+# $Id: loginfo.pl,v 1.14 2005/05/23 02:04:05 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
@@ -46,7 +46,7 @@
 use strict;
 
 # bucket o' variables
-my ($changelog, $dodiffs, $donewdir, $doimport, $doemail);
+my ($changelog, $dodiffs, $donewdir, $doimport, @emailrecips);
 my ($curdir, $prepdir, $lastdir, $module, $branch);
 my (@diffcmds, %modfiles, %addfiles, %delfiles, @message, @log);
 
@@ -78,7 +78,7 @@ while (@ARGV) {
 	} elsif ($ARGV[0] eq "-d") {
 		$dodiffs = 1;
 	} elsif ($ARGV[0] eq "-m") {
-		$doemail = $ARGV[1];
+		push @emailrecips, $ARGV[1];
 		shift(@ARGV);
 	}
 
@@ -334,13 +334,13 @@ if (($donewdir eq "") and ($dodiffs) and (-f $tmpdir . "/" . $tmp_diffcmd)) {
 	}
 }
 
-if ($doemail) {
-	# send email
+# send emails
+foreach my $recip (@emailrecips) {
 	open(SENDMAIL, "| /usr/sbin/sendmail -t") or
 		die "can't run sendmail: " . $!;
 	print SENDMAIL "From: " . $fullname . " <" . $email . ">\n";
 	print SENDMAIL "Reply-To: " . $email . "\n";
-	print SENDMAIL "To: " . $doemail . "\n";
+	print SENDMAIL "To: " . $recip . "\n";
 	print SENDMAIL "Subject: CVS: " . $hostname . ": " . $module . "\n";
 	print SENDMAIL "\n";
 	foreach my $line (@message) {
