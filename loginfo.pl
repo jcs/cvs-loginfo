@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.15 2005/05/27 15:46:09 jcs Exp $
+# $Id: loginfo.pl,v 1.16 2005/05/27 15:49:04 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
@@ -315,7 +315,7 @@ if (($donewdir eq "") and ($dodiffs) and (-f $tmpdir . "/" . $tmp_diffcmd)) {
 	open(DIFFCMDS, "<" . $tmpdir . "/" . $tmp_diffcmd) or
 		die "can't read " . $tmpdir . "/" . $tmp_diffcmd . ": " . $!;
 	while (chop(my $line = <DIFFCMDS>)) {
-		push @diffcmds, "cvs -nQq rdiff -up " . $line;
+		push @diffcmds, "cvs -nQq rdiff -u " . $line;
 	}
 	close(DIFFCMDS);
 
