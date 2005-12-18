@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.17 2005/12/18 03:14:53 jcs Exp $
+# $Id: loginfo.pl,v 1.18 2005/12/18 03:31:45 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
@@ -21,7 +21,7 @@
 # 3. The name of the author may not be used to endorse or promote products
 #    derived from this software without specific prior written permission.
 # 
-# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR "AS IS" AND ANY EXPRESS OR
 # IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
 # OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
 # IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
