@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.16 2005/05/27 15:49:04 jcs Exp $
+# $Id: loginfo.pl,v 1.17 2005/12/18 03:14:53 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
@@ -7,7 +7,7 @@
 # the log_accum script included with cvs, but not nearly as hideous.  also
 # supports emailing diffs.
 #
-# Copyright (c) 2004 joshua stein <jcs@jcs.org>
+# Copyright (c) 2004-2005 joshua stein <jcs@jcs.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -77,6 +77,7 @@ while (@ARGV) {
 		shift(@ARGV);
 	} elsif ($ARGV[0] eq "-d") {
 		$dodiffs = 1;
+		# no args
 	} elsif ($ARGV[0] eq "-m") {
 		push @emailrecips, $ARGV[1];
 		shift(@ARGV);
