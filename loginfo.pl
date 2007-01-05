@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.18 2005/12/18 03:31:45 jcs Exp $
+# $Id: loginfo.pl,v 1.19 2007/01/05 06:18:47 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
@@ -7,7 +7,7 @@
 # the log_accum script included with cvs, but not nearly as hideous.  also
 # supports emailing diffs.
 #
-# Copyright (c) 2004-2005 joshua stein <jcs@jcs.org>
+# Copyright (c) 2004-2007 joshua stein <jcs@jcs.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -46,7 +46,7 @@
 use strict;
 
 # bucket o' variables
-my ($changelog, $dodiffs, $donewdir, $doimport, @emailrecips);
+my ($changelog, $dodiffs, $dordiffcmds, $donewdir, $doimport, @emailrecips);
 my ($curdir, $prepdir, $lastdir, $module, $branch);
 my (@diffcmds, %modfiles, %addfiles, %delfiles, @message, @log);
 
@@ -77,6 +77,9 @@ while (@ARGV) {
 		shift(@ARGV);
 	} elsif ($ARGV[0] eq "-d") {
 		$dodiffs = 1;
+		# no args
+	} elsif ($ARGV[0] eq "-D") {
+		$dordiffcmds = 1;
 		# no args
 	} elsif ($ARGV[0] eq "-m") {
 		push @emailrecips, $ARGV[1];
@@ -310,7 +313,8 @@ if ($changelog) {
 	close(CHANGELOG);
 }
 
-if (($donewdir eq "") and ($dodiffs) and (-f $tmpdir . "/" . $tmp_diffcmd)) {
+if (($donewdir eq "") and ($dodiffs or $dordiffcmds) and 
+    (-f $tmpdir . "/" . $tmp_diffcmd)) {
 	# generate diffs
 	@diffcmds = ();
 	open(DIFFCMDS, "<" . $tmpdir . "/" . $tmp_diffcmd) or
@@ -321,16 +325,23 @@ if (($donewdir eq "") and ($dodiffs) and (-f $tmpdir . "/" . $tmp_diffcmd)) {
 	close(DIFFCMDS);
 
 	if ($#diffcmds > -1) {
-		push @message, "\n";
-		push @message, "Diffs:\n";
+		if ($dordiffcmds) {
+			push @message, "\n";
+			push @message, "Diff commands:\n";
+			push @message, join("\n", @diffcmds) . "\n";
+		}
+		if ($dodiffs) {
+			push @message, "\n";
+			push @message, "Diffs:\n";
 
-		foreach my $diffcmd (@diffcmds) {
-			my @args = split(" ", $diffcmd, 7);
-			open(DIFF, "-|") || exec @args;
-			while (my $line = <DIFF>) {
-				push @message, $line;
+			foreach my $diffcmd (@diffcmds) {
+				my @args = split(" ", $diffcmd, 7);
+				open(DIFF, "-|") || exec @args;
+				while (my $line = <DIFF>) {
+					push @message, $line;
+				}
+				close(DIFF);
 			}
-			close(DIFF);
 		}
 	}
 }
