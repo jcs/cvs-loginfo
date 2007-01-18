@@ -1,11 +1,11 @@
 #!/usr/bin/perl
-# $Id: loginfo.pl,v 1.19 2007/01/05 06:18:47 jcs Exp $
+# $Id: loginfo.pl,v 1.20 2007/01/18 06:52:00 jcs Exp $
 # vim:ts=4
 #
 # loginfo.pl
 # a cvs loginfo script to handle changelog writing and emailing, similar to
 # the log_accum script included with cvs, but not nearly as hideous.  also
-# supports emailing diffs.
+# supports emailing diffs and rdiff/cvsweb information.
 #
 # Copyright (c) 2004-2007 joshua stein <jcs@jcs.org>
 #
@@ -36,19 +36,21 @@
 #
 # to process all subdirectories at once, this script will need to be called
 # from commitinfo in "prep" mode (emulating commit_prep):
-#  ALL  $CVSROOT/CVSROOT/loginfo.pl -p
+#  ALL  perl $CVSROOT/CVSROOT/loginfo.pl -p
 #
 # then call the script normally from loginfo:
 #  ALL  perl $CVSROOT/CVSROOT/loginfo.pl -c $CVSROOT/CVSROOT/ChangeLog \
+#             -C http://example.com/cgi-bin/cvsweb.cgi -D \
 #             -m somelist@example.com -d %{sVv}
 #
 
 use strict;
 
-# bucket o' variables
-my ($changelog, $dodiffs, $dordiffcmds, $donewdir, $doimport, @emailrecips);
-my ($curdir, $prepdir, $lastdir, $module, $branch);
-my (@diffcmds, %modfiles, %addfiles, %delfiles, @message, @log);
+my ($curdir, $donewdir, $doimport, $lastdir, $prepdir, $module, $branch);
+my (@diffcmds, @diffrevs, %modfiles, %addfiles, %delfiles, @message, @log);
+
+# configuration options taken from args
+my ($changelog, $cvsweburibase, $dodiffs, $dordiffcmds, @emailrecips);
 
 # temporary files used between runs
 my $tmpdir = "/tmp";
@@ -58,11 +60,9 @@ my $tmp_addfiles = ".cvs.addfiles" . getpgrp();
 my $tmp_delfiles = ".cvs.delfiles" . getpgrp();
 my $tmp_diffcmd = ".cvs.diffcmd" . getpgrp();
 
-# read command line args
 while (@ARGV) {
-	# check for prep mode
 	if ($ARGV[0] eq "-p") {
-		# the only args should be a directory (and a file we don't use)
+		# prep mode: only args should be a directory (and a file we don't use)
 		$prepdir = $ARGV[1];
 
 		# remove the cvsroot and slash
@@ -74,6 +74,9 @@ while (@ARGV) {
 	# configuration options
 	elsif ($ARGV[0] eq "-c") {
 		$changelog = $ARGV[1];
+		shift(@ARGV);
+	} elsif ($ARGV[0] eq "-C") {
+		$cvsweburibase = $ARGV[1];
 		shift(@ARGV);
 	} elsif ($ARGV[0] eq "-d") {
 		$dodiffs = 1;
@@ -124,9 +127,8 @@ while (@ARGV) {
 		my $filelist = $2;
 
 		# init
-		@{$modfiles{$curdir}} = ();
-		@{$addfiles{$curdir}} = ();
-		@{$delfiles{$curdir}} = ();
+		@{$modfiles{$curdir}} = @{$addfiles{$curdir}} =
+			@{$delfiles{$curdir}} = ();
 
 		# read list of changed files and their versions
 		while ($filelist =~ /^((.+?),([\d\.]+|NONE),([\d\.]+|NONE))($| (.+))/) {
@@ -192,7 +194,7 @@ if ($donewdir eq "") {
 
 	# remove trailing empty lines from the log
 	for (my $x = $#log; $x >= 0; $x--) {
-		if (($log[$x] eq "") or ($log[$x] eq "\n")) {
+		if ($log[$x] eq "" || $log[$x] eq "\n") {
 			pop(@log);
 		} else {
 			last;
@@ -224,17 +226,17 @@ if ($donewdir eq "") {
 
 	if ($doimport eq "") {
 		# we have more directories to look at
-		if (($module . ($curdir eq "." ? "" : "/" . $curdir)) ne $lastdir) {
+		if ($module . ($curdir eq "." ? "" : "/" . $curdir) ne $lastdir) {
 			exit;
 		}
 	}
 }
 
-# start building header
+# start building e-mail header
 my ($login, $gecos, $fullname, $email);
 
 # determine our user
-if ($login = $ENV{"USER"}) {
+if (($login = $ENV{"USER"}) ne "") {
 	$gecos = (getpwnam($login))[6];
 } else {
 	($login, $gecos) = (getpwuid ($<))[0,6];
@@ -250,9 +252,9 @@ if ($branch) {
 	push @message, "Branch:         " . $branch . "\n";
 }
 my ($sec, $min, $hour, $mday, $mon, $year) = localtime(time);
-push @message, "Changes by:     " . $email . " "
+push @message,"Changes by:     " . $email . " "
 	. sprintf("%02d/%02d/%02d %02d:%02d:%02d", ($year % 100), ($mon + 1),
-		$mday, $hour, $min, $sec) . "\n";
+	$mday, $hour, $min, $sec) . "\n";
 
 push @message, "\n";
 
@@ -295,7 +297,6 @@ if ($donewdir ne "") {
 		push @message, "\n";
 	}
 
-	# add the log
 	push @message, "Log message:\n";
 	foreach my $line (@log) {
 		push @message, "    " . $line;
@@ -313,26 +314,47 @@ if ($changelog) {
 	close(CHANGELOG);
 }
 
-if (($donewdir eq "") and ($dodiffs or $dordiffcmds) and 
-    (-f $tmpdir . "/" . $tmp_diffcmd)) {
-	# generate diffs
-	@diffcmds = ();
+if ($donewdir eq "" && ($dodiffs || $dordiffcmds || $cvsweburibase) &&
+-f $tmpdir . "/" . $tmp_diffcmd) {
+	# generate diffs and record revision numbers
+	@diffcmds = @diffrevs = ();
 	open(DIFFCMDS, "<" . $tmpdir . "/" . $tmp_diffcmd) or
 		die "can't read " . $tmpdir . "/" . $tmp_diffcmd . ": " . $!;
 	while (chop(my $line = <DIFFCMDS>)) {
 		push @diffcmds, "cvs -nQq rdiff -u " . $line;
+
+		if ($cvsweburibase) {
+			my ($r1, $r2, $mod) = $line =~ /^-r([0-9\.]+) -r([0-9\.]+) (\S+)/;
+			push @diffrevs, [ $r1, $r2, $mod ];
+		}
 	}
 	close(DIFFCMDS);
 
 	if ($#diffcmds > -1) {
 		if ($dordiffcmds) {
-			push @message, "\n";
-			push @message, "Diff commands:\n";
+			push @message, "\n"
+				. "Diff commands:\n";
 			push @message, join("\n", @diffcmds) . "\n";
 		}
+
+		if ($cvsweburibase) {
+			push @message, "\n"
+				. "CVSWeb:\n";
+
+			foreach my $diffrevr (@diffrevs) {
+				my ($r1, $r2, $mod) = @{$diffrevr};
+
+				# encode special chars in filenames for valid urls
+				$mod =~ s/([^\w\/\.-])/sprintf("%%%02X", ord($1))/seg;
+
+				push @message, $cvsweburibase . "/" . $mod . "?r1=" . $r1
+					. ";r2=" . $r2 . "\n";
+			}
+		}
+
 		if ($dodiffs) {
-			push @message, "\n";
-			push @message, "Diffs:\n";
+			push @message, "\n"
+				. "Diffs:\n";
 
 			foreach my $diffcmd (@diffcmds) {
 				my @args = split(" ", $diffcmd, 7);
